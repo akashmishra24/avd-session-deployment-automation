@@ -26,7 +26,8 @@ on:
       image:
         description: 'Image reference (e.g., MicrosoftWindowsDesktop:windows-11:win11-22h2-avd:latest)'
         required: true
-        default: '/subscriptions/548e32f7-f0a7-4af3-a856-130ec718c224/resourceGroups/rg-subsurfacevdi-np-001/providers/Microsoft.Compute/galleries/gal_subsurfacevdi_np_ae/images/win11-soe-ssv/versions/1.1.0'
+        default: 'MicrosoftWindowsDesktop:windows-11:win11-pro:latest'
+       # default: '/subscriptions/548e32f7-f0a7-4af3-a856-130ec718c224/resourceGroups/rg-subsurfacevdi-np-001/providers/Microsoft.Compute/galleries/gal_subsurfacevdi_np_ae/images/win11-soe-ssv/versions/1.1.0'
       location:
         description: 'Azure location'
         required: true
@@ -87,77 +88,77 @@ jobs:
             --name "${{ github.event.inputs.subnet_name }}" \
             --query id -o tsv)
           
-      #     echo "VNET_ID: $VNET_ID"
-      #     echo "SUBNET_ID: $SUBNET_ID"
+          echo "VNET_ID: $VNET_ID"
+          echo "SUBNET_ID: $SUBNET_ID"
           
-      #     echo "=== Creating Network Interface ==="
-      #     az network nic create \
-      #       --resource-group "${{ github.event.inputs.resource_group }}" \
-      #       --name "${{ github.event.inputs.vm_name }}-nic" \
-      #       --location "${{ github.event.inputs.location }}" \
-      #       --subnet "$SUBNET_ID" \
-      #       --private-ip-address-version IPv4 \
-      #       --output table
+          echo "=== Creating Network Interface ==="
+          az network nic create \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --name "${{ github.event.inputs.vm_name }}-nic" \
+            --location "${{ github.event.inputs.location }}" \
+            --subnet "$SUBNET_ID" \
+            --private-ip-address-version IPv4 \
+            --output table
           
-      #     echo "Network interface created successfully"
+          echo "Network interface created successfully"
       
-      # - name: Create VM for AVD Session Host
-      #   run: |
-      #     echo "=== Creating VM: ${{ github.event.inputs.vm_name }} ==="
+      - name: Create VM for AVD Session Host
+        run: |
+          echo "=== Creating VM: ${{ github.event.inputs.vm_name }} ==="
           
-      #     az vm create \
-      #       --resource-group "${{ github.event.inputs.resource_group }}" \
-      #       --name "${{ github.event.inputs.vm_name }}" \
-      #       --image "${{ github.event.inputs.image }}" \
-      #       --size "${{ github.event.inputs.vm_size }}" \
-      #       --location "${{ github.event.inputs.location }}" \
-      #       --authentication-type password \
-      #       --admin-username "${{ github.event.inputs.admin_username }}" \
-      #       --admin-password "${{ github.event.inputs.admin_password }}" \
-      #       --nics "${{ github.event.inputs.vm_name }}-nic" \
-      #       --public-ip-address "" \
-      #       --output table
+          az vm create \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --name "${{ github.event.inputs.vm_name }}" \
+            --image "${{ github.event.inputs.image }}" \
+            --size "${{ github.event.inputs.vm_size }}" \
+            --location "${{ github.event.inputs.location }}" \
+            --authentication-type password \
+            --admin-username "${{ github.event.inputs.admin_username }}" \
+            --admin-password "${{ github.event.inputs.admin_password }}" \
+            --nics "${{ github.event.inputs.vm_name }}-nic" \
+            --public-ip-address "" \
+            --output table
           
-      #     echo "VM created successfully"
+          echo "VM created successfully"
  
-      # - name: Register VM as AVD Session Host
-      #   run: |
-      #     echo "=== Registering ${{ github.event.inputs.vm_name }} as AVD Session Host ==="
+      - name: Register VM as AVD Session Host
+        run: |
+          echo "=== Registering ${{ github.event.inputs.vm_name }} as AVD Session Host ==="
           
-      #     # Get the host pool resource ID
-      #     HOSTPOOL_ID=$(az desktopvirtualization hostpool list \
-      #       --resource-group "${{ github.event.inputs.resource_group }}" \
-      #       --query "[?name=='${{ github.event.inputs.hostpool_name }}'].id" \
-      #       --output tsv)
+          # Get the host pool resource ID
+          HOSTPOOL_ID=$(az desktopvirtualization hostpool list \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --query "[?name=='${{ github.event.inputs.hostpool_name }}'].id" \
+            --output tsv)
           
-      #     if [ -z "$HOSTPOOL_ID" ]; then
-      #       echo "ERROR: Host pool '${{ github.event.inputs.hostpool_name }}' not found"
-      #       exit 1
-      #     fi
+          if [ -z "$HOSTPOOL_ID" ]; then
+            echo "ERROR: Host pool '${{ github.event.inputs.hostpool_name }}' not found"
+            exit 1
+          fi
           
-      #     echo "Host Pool ID: $HOSTPOOL_ID"
+          echo "Host Pool ID: $HOSTPOOL_ID"
           
-      #     # Get the registration token
-      #     TOKEN=$(az desktopvirtualization hostpool update \
-      #       --resource-group "${{ github.event.inputs.resource_group }}" \
-      #       --name "${{ github.event.inputs.hostpool_name }}" \
-      #       --query registrationInfo.token \
-      #       --output tsv)
+          # Get the registration token
+          TOKEN=$(az desktopvirtualization hostpool update \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --name "${{ github.event.inputs.hostpool_name }}" \
+            --query registrationInfo.token \
+            --output tsv)
           
-      #     echo "Registration token obtained"
-      #     echo "Session host registration complete"
+          echo "Registration token obtained"
+          echo "Session host registration complete"
  
-      # - name: Verify Session Host Registration
-      #   run: |
-      #     echo "=== Verifying Session Host in Host Pool ==="
-      #     az desktopvirtualization sessionhost list \
-      #       --resource-group "${{ github.event.inputs.resource_group }}" \
-      #       --host-pool-name "${{ github.event.inputs.hostpool_name }}" \
-      #       --output table
+      - name: Verify Session Host Registration
+        run: |
+          echo "=== Verifying Session Host in Host Pool ==="
+          az desktopvirtualization sessionhost list \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --host-pool-name "${{ github.event.inputs.hostpool_name }}" \
+            --output table
  
-      # - name: Azure CLI logout
-      #   if: always()
-      #   run: |
-      #     az logout
-      #     az cache purge
-      #     az account clear
+      - name: Azure CLI logout
+        if: always()
+        run: |
+          az logout
+          az cache purge
+          az account clear
