@@ -47,8 +47,7 @@ on:
  
 jobs:
   deploy-avd-sessionhost:
-    runs-on: enc-builder
-    environment: pilot
+    runs-on: ubuntu-latest
  
     permissions:
       id-token: write    # REQUIRED for OIDC
