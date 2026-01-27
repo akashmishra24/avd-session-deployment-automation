@@ -1,0 +1,164 @@
+name: AVD Session Host Deployment
+ 
+on:
+  workflow_dispatch:  # Manual trigger for testing
+    inputs:
+      vm_name:
+        description: 'Name of the VM to create'
+        required: true
+        default: 'avd-vm-01'
+      vm_size:
+        description: 'VM size (e.g., Standard_D2s_v3)'
+        required: true
+        default: 'Standard_D2s_v3'
+      resource_group:
+        description: 'Resource group name'
+        required: true
+        default: 'AVD-RG'
+      vnet_name:
+        description: 'Virtual Network name'
+        required: true
+        default: 'avdsessionvnet'
+      subnet_name:
+        description: 'Subnet name'
+        required: true
+        default: 'subnet01'
+      image:
+        description: 'Image reference (e.g., MicrosoftWindowsDesktop:windows-11:win11-22h2-avd:latest)'
+        required: true
+        default: '/subscriptions/548e32f7-f0a7-4af3-a856-130ec718c224/resourceGroups/rg-subsurfacevdi-np-001/providers/Microsoft.Compute/galleries/gal_subsurfacevdi_np_ae/images/win11-soe-ssv/versions/1.1.0'
+      location:
+        description: 'Azure location'
+        required: true
+        default: 'eastus'
+      hostpool_name:
+        description: 'AVD Host Pool name'
+        required: true
+        default: 'hostpool01'
+      admin_username:
+        description: 'VM admin username'
+        required: true
+        default: 'ssvadmin'
+      admin_password:
+        description: 'VM admin password'
+        required: true
+        type: string
+        default: 'P@ssw0rd1234!'
+ 
+jobs:
+  deploy-avd-sessionhost:
+    runs-on: enc-builder
+    environment: pilot
+ 
+    permissions:
+      id-token: write    # REQUIRED for OIDC
+      contents: read
+ 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+ 
+      - name: Login to Azure via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+ 
+      - name: Verify Azure CLI context
+        run: |
+          echo "=== Azure Account Info ==="
+          az account show --output table
+          echo ""
+          echo "=== Resource Groups ==="
+          az group list --output table
+ 
+      - name: Create Network Interface
+        run: |
+          echo "=== Getting Network Configuration ==="
+          
+          VNET_ID=$(az network vnet show \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --name "${{ github.event.inputs.vnet_name }}" \
+            --query id -o tsv)
+          
+          SUBNET_ID=$(az network vnet subnet show \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --vnet-name "${{ github.event.inputs.vnet_name }}" \
+            --name "${{ github.event.inputs.subnet_name }}" \
+            --query id -o tsv)
+          
+      #     echo "VNET_ID: $VNET_ID"
+      #     echo "SUBNET_ID: $SUBNET_ID"
+          
+      #     echo "=== Creating Network Interface ==="
+      #     az network nic create \
+      #       --resource-group "${{ github.event.inputs.resource_group }}" \
+      #       --name "${{ github.event.inputs.vm_name }}-nic" \
+      #       --location "${{ github.event.inputs.location }}" \
+      #       --subnet "$SUBNET_ID" \
+      #       --private-ip-address-version IPv4 \
+      #       --output table
+          
+      #     echo "Network interface created successfully"
+      
+      # - name: Create VM for AVD Session Host
+      #   run: |
+      #     echo "=== Creating VM: ${{ github.event.inputs.vm_name }} ==="
+          
+      #     az vm create \
+      #       --resource-group "${{ github.event.inputs.resource_group }}" \
+      #       --name "${{ github.event.inputs.vm_name }}" \
+      #       --image "${{ github.event.inputs.image }}" \
+      #       --size "${{ github.event.inputs.vm_size }}" \
+      #       --location "${{ github.event.inputs.location }}" \
+      #       --authentication-type password \
+      #       --admin-username "${{ github.event.inputs.admin_username }}" \
+      #       --admin-password "${{ github.event.inputs.admin_password }}" \
+      #       --nics "${{ github.event.inputs.vm_name }}-nic" \
+      #       --public-ip-address "" \
+      #       --output table
+          
+      #     echo "VM created successfully"
+ 
+      # - name: Register VM as AVD Session Host
+      #   run: |
+      #     echo "=== Registering ${{ github.event.inputs.vm_name }} as AVD Session Host ==="
+          
+      #     # Get the host pool resource ID
+      #     HOSTPOOL_ID=$(az desktopvirtualization hostpool list \
+      #       --resource-group "${{ github.event.inputs.resource_group }}" \
+      #       --query "[?name=='${{ github.event.inputs.hostpool_name }}'].id" \
+      #       --output tsv)
+          
+      #     if [ -z "$HOSTPOOL_ID" ]; then
+      #       echo "ERROR: Host pool '${{ github.event.inputs.hostpool_name }}' not found"
+      #       exit 1
+      #     fi
+          
+      #     echo "Host Pool ID: $HOSTPOOL_ID"
+          
+      #     # Get the registration token
+      #     TOKEN=$(az desktopvirtualization hostpool update \
+      #       --resource-group "${{ github.event.inputs.resource_group }}" \
+      #       --name "${{ github.event.inputs.hostpool_name }}" \
+      #       --query registrationInfo.token \
+      #       --output tsv)
+          
+      #     echo "Registration token obtained"
+      #     echo "Session host registration complete"
+ 
+      # - name: Verify Session Host Registration
+      #   run: |
+      #     echo "=== Verifying Session Host in Host Pool ==="
+      #     az desktopvirtualization sessionhost list \
+      #       --resource-group "${{ github.event.inputs.resource_group }}" \
+      #       --host-pool-name "${{ github.event.inputs.hostpool_name }}" \
+      #       --output table
+ 
+      # - name: Azure CLI logout
+      #   if: always()
+      #   run: |
+      #     az logout
+      #     az cache purge
+      #     az account clear
