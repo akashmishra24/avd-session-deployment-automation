@@ -121,9 +121,9 @@ jobs:
           
           echo "VM created successfully"
  
-      - name: Register VM as AVD Session Host
+      - name: Generate AVD Registration Token
         run: |
-          echo "=== Registering ${{ github.event.inputs.vm_name }} as AVD Session Host ==="
+          echo "=== Generating AVD Registration Token ==="
           
           # Get the host pool resource ID
           HOSTPOOL_ID=$(az desktopvirtualization hostpool list \
@@ -137,23 +137,95 @@ jobs:
           fi
           
           echo "Host Pool ID: $HOSTPOOL_ID"
+          echo "HOSTPOOL_ID=$HOSTPOOL_ID" >> $GITHUB_ENV
           
-          # Get the registration token
-          TOKEN=$(az desktopvirtualization hostpool update \
+          # Create registration token (valid for 1 hour)
+          TOKEN_RESPONSE=$(az desktopvirtualization hostpool update \
             --resource-group "${{ github.event.inputs.resource_group }}" \
             --name "${{ github.event.inputs.hostpool_name }}" \
-            --query registrationInfo.token \
+            --registration-info expiration-time=$(date -u -d '+1 hour' '+%Y-%m-%dT%H:%M:%S.000Z') \
+            --registration-info registration-token-operation=Update \
+            --output json)
+          
+          echo "Registration token generated"
+          echo "TOKEN_RESPONSE=$TOKEN_RESPONSE" >> $GITHUB_ENV
+      
+      - name: Install AVD Agent and Register Session Host
+        run: |
+          echo "=== Installing AVD Agent on VM ==="
+          
+          # Get the registration token from the host pool
+          REGISTRATION_TOKEN=$(az desktopvirtualization hostpool show \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --name "${{ github.event.inputs.hostpool_name }}" \
+            --query 'registrationInfo.token' \
             --output tsv)
           
-          echo "Registration token obtained"
-          echo "Session host registration complete"
- 
-      - name: Verify Session Host Registration
-        run: |
-          echo "=== Verifying Session Host in Host Pool ==="
-          az desktopvirtualization sessionhost list \
+          if [ -z "$REGISTRATION_TOKEN" ]; then
+            echo "ERROR: Failed to retrieve registration token"
+            exit 1
+          fi
+          
+          echo "Registration token retrieved (length: ${#REGISTRATION_TOKEN})"
+          
+          # Install AVD Agent using custom script extension
+          az vm run-command invoke \
             --resource-group "${{ github.event.inputs.resource_group }}" \
-            --host-pool-name "${{ github.event.inputs.hostpool_name }}" \
+            --name "${{ github.event.inputs.vm_name }}" \
+            --command-id RunPowerShellScript \
+            --scripts "
+            # Download and install AVD Agent
+            Write-Host 'Downloading AVD Agent...'
+            \$agentUrl = 'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv'
+            \$agentPath = 'C:\Temp\RDAgentBootLoaderInstaller.msi'
+            New-Item -ItemType Directory -Path C:\Temp -Force | Out-Null
+            
+            try {
+              Invoke-WebRequest -Uri \$agentUrl -OutFile \$agentPath -UseBasicParsing
+              Write-Host 'AVD Agent downloaded successfully'
+            } catch {
+              Write-Error 'Failed to download AVD Agent: \$_'
+              exit 1
+            }
+            
+            # Install the Boot Loader
+            Write-Host 'Installing AVD Boot Loader...'
+            \$installArgs = @(
+              '/i', \$agentPath,
+              '/quiet',
+              '/qn',
+              '/norestart'
+            )
+            
+            Start-Process -FilePath 'msiexec.exe' -ArgumentList \$installArgs -Wait
+            Write-Host 'AVD Boot Loader installed'
+            
+            # Download and install the RDP Agent
+            Write-Host 'Downloading RDP Agent...'
+            \$rdpAgentUrl = 'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv'
+            \$rdpAgentPath = 'C:\Temp\RDAgentBootLoaderInstaller.msi'
+            
+            Write-Host 'Installing RDP Agent with registration token...'
+            \$regPath = 'HKLM:\SOFTWARE\Microsoft\RDInfraAgent'
+            New-Item -Path \$regPath -Force | Out-Null
+            Set-ItemProperty -Path \$regPath -Name 'RegistrationToken' -Value '${REGISTRATION_TOKEN}' -Force
+            
+            Write-Host 'Session host registration configuration complete'
+            " || exit 1
+          
+          echo "AVD Agent installation initiated"
+      
+      - name: Verify Session Host
+        run: |
+          echo "=== Verifying Session Host Registration ==="
+          
+          # Wait for the VM to register (this can take a few minutes)
+          sleep 30
+          
+          # List available session hosts in the host pool
+          az desktopvirtualization hostpool show \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --name "${{ github.event.inputs.hostpool_name }}" \
             --output table
  
       - name: Azure CLI logout
