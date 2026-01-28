@@ -26,7 +26,7 @@ on:
       image:
         description: 'Image reference (e.g., MicrosoftWindowsDesktop:windows-11:win11-22h2-avd:latest)'
         required: true
-        default: 'MicrosoftWindowsDesktop:windows-11:win11-pro:latest'
+        default: 'MicrosoftWindowsDesktop:Windows-11:win11-25h2-pro:latest'
        # default: '/subscriptions/548e32f7-f0a7-4af3-a856-130ec718c224/resourceGroups/rg-subsurfacevdi-np-001/providers/Microsoft.Compute/galleries/gal_subsurfacevdi_np_ae/images/win11-soe-ssv/versions/1.1.0'
       location:
         description: 'Azure location'
@@ -139,16 +139,17 @@ jobs:
           echo "Host Pool ID: $HOSTPOOL_ID"
           echo "HOSTPOOL_ID=$HOSTPOOL_ID" >> $GITHUB_ENV
           
-          # Create registration token (valid for 1 hour)
-          TOKEN_RESPONSE=$(az desktopvirtualization hostpool update \
+          # Create registration token (valid for 7 days)
+          EXPIRATION_TIME=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%S%z' | sed 's/+0000$/Z/')
+          echo "Token expiration time: $EXPIRATION_TIME"
+          
+          az desktopvirtualization hostpool update \
             --resource-group "${{ github.event.inputs.resource_group }}" \
             --name "${{ github.event.inputs.hostpool_name }}" \
-            --registration-info expiration-time=$(date -u -d '+1 hour' '+%Y-%m-%dT%H:%M:%S.000Z') \
             --registration-info registration-token-operation=Update \
-            --output json)
+            --output json > /tmp/hostpool_response.json
           
           echo "Registration token generated"
-          echo "TOKEN_RESPONSE=$TOKEN_RESPONSE" >> $GITHUB_ENV
       
       - name: Install AVD Agent and Register Session Host
         run: |
