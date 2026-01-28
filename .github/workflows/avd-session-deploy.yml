@@ -143,28 +143,32 @@ jobs:
           EXPIRATION_TIME=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%SZ')
           echo "Token expiration time: $EXPIRATION_TIME"
           
-          az desktopvirtualization hostpool update \
+          # Update host pool and capture response
+          HOSTPOOL_RESPONSE=$(az desktopvirtualization hostpool update \
             --resource-group "${{ github.event.inputs.resource_group }}" \
             --name "${{ github.event.inputs.hostpool_name }}" \
             --registration-info registration-token-operation=Update \
             --registration-info expiration-time="$EXPIRATION_TIME" \
-            --output json > /tmp/hostpool_response.json
+            --output json)
           
-          echo "Registration token generated"
+          # Extract the registration token from response
+          REGISTRATION_TOKEN=$(echo "$HOSTPOOL_RESPONSE" | jq -r '.registrationInfo.token')
+          
+          if [ -z "$REGISTRATION_TOKEN" ] || [ "$REGISTRATION_TOKEN" = "null" ]; then
+            echo "ERROR: Failed to extract registration token from response"
+            echo "Response: $HOSTPOOL_RESPONSE"
+            exit 1
+          fi
+          
+          echo "Registration token generated successfully"
+          echo "REGISTRATION_TOKEN=$REGISTRATION_TOKEN" >> $GITHUB_ENV
       
       - name: Install AVD Agent and Register Session Host
         run: |
           echo "=== Installing AVD Agent on VM ==="
           
-          # Get the registration token from the host pool
-          REGISTRATION_TOKEN=$(az desktopvirtualization hostpool show \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.hostpool_name }}" \
-            --query 'registrationInfo.token' \
-            --output tsv)
-          
           if [ -z "$REGISTRATION_TOKEN" ]; then
-            echo "ERROR: Failed to retrieve registration token"
+            echo "ERROR: Registration token is not available"
             exit 1
           fi
           
@@ -177,14 +181,14 @@ jobs:
             --command-id RunPowerShellScript \
             --scripts "
             # Download and install AVD Agent
-            Write-Host 'Downloading AVD Agent...'
+            Write-Host 'Downloading AVD Agent Boot Loader...'
             \$agentUrl = 'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv'
             \$agentPath = 'C:\Temp\RDAgentBootLoaderInstaller.msi'
             New-Item -ItemType Directory -Path C:\Temp -Force | Out-Null
             
             try {
               Invoke-WebRequest -Uri \$agentUrl -OutFile \$agentPath -UseBasicParsing
-              Write-Host 'AVD Agent downloaded successfully'
+              Write-Host 'AVD Agent Boot Loader downloaded successfully'
             } catch {
               Write-Error 'Failed to download AVD Agent: \$_'
               exit 1
@@ -199,18 +203,50 @@ jobs:
               '/norestart'
             )
             
-            Start-Process -FilePath 'msiexec.exe' -ArgumentList \$installArgs -Wait
-            Write-Host 'AVD Boot Loader installed'
+            \$process = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$installArgs -Wait -PassThru
+            if (\$process.ExitCode -ne 0) {
+              Write-Error \"Boot Loader installation failed with exit code: \$(\$process.ExitCode)\"
+              exit 1
+            }
+            Write-Host 'AVD Boot Loader installed successfully'
+            
+            # Configure registration token in registry
+            Write-Host 'Configuring registration token...'
+            \$regPath = 'HKLM:\SOFTWARE\Microsoft\RDInfraAgent'
+            if (!(Test-Path \$regPath)) {
+              New-Item -Path \$regPath -Force | Out-Null
+            }
+            Set-ItemProperty -Path \$regPath -Name 'RegistrationToken' -Value '${REGISTRATION_TOKEN}' -Force
+            Write-Host 'Registration token configured'
             
             # Download and install the RDP Agent
-            Write-Host 'Downloading RDP Agent...'
+            Write-Host 'Downloading RDP Session Host Agent...'
             \$rdpAgentUrl = 'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv'
-            \$rdpAgentPath = 'C:\Temp\RDAgentBootLoaderInstaller.msi'
+            \$rdpAgentPath = 'C:\Temp\RDSessionHostInstaller.msi'
             
-            Write-Host 'Installing RDP Agent with registration token...'
-            \$regPath = 'HKLM:\SOFTWARE\Microsoft\RDInfraAgent'
-            New-Item -Path \$regPath -Force | Out-Null
-            Set-ItemProperty -Path \$regPath -Name 'RegistrationToken' -Value '${REGISTRATION_TOKEN}' -Force
+            try {
+              Invoke-WebRequest -Uri \$rdpAgentUrl -OutFile \$rdpAgentPath -UseBasicParsing
+              Write-Host 'RDP Session Host Agent downloaded successfully'
+            } catch {
+              Write-Error 'Failed to download RDP Agent: \$_'
+              exit 1
+            }
+            
+            # Install RDP Session Host Agent
+            Write-Host 'Installing RDP Session Host Agent...'
+            \$installArgs = @(
+              '/i', \$rdpAgentPath,
+              '/quiet',
+              '/qn',
+              '/norestart'
+            )
+            
+            \$process = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$installArgs -Wait -PassThru
+            if (\$process.ExitCode -ne 0) {
+              Write-Error \"RDP Agent installation failed with exit code: \$(\$process.ExitCode)\"
+              exit 1
+            }
+            Write-Host 'RDP Session Host Agent installed successfully'
             
             Write-Host 'Session host registration configuration complete'
             " || exit 1
