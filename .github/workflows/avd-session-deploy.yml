@@ -140,13 +140,14 @@ jobs:
           echo "HOSTPOOL_ID=$HOSTPOOL_ID" >> $GITHUB_ENV
           
           # Create registration token (valid for 7 days)
-          EXPIRATION_TIME=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%S%z' | sed 's/+0000$/Z/')
+          EXPIRATION_TIME=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%SZ')
           echo "Token expiration time: $EXPIRATION_TIME"
           
           az desktopvirtualization hostpool update \
             --resource-group "${{ github.event.inputs.resource_group }}" \
             --name "${{ github.event.inputs.hostpool_name }}" \
             --registration-info registration-token-operation=Update \
+            --registration-info expiration-time="$EXPIRATION_TIME" \
             --output json > /tmp/hostpool_response.json
           
           echo "Registration token generated"
