@@ -194,32 +194,24 @@ jobs:
               exit 1
             }
             
-            # Install the Boot Loader
-            Write-Host 'Installing AVD Boot Loader...'
+            # Install the Boot Loader with registration token
+            Write-Host 'Installing AVD Boot Loader with registration token...'
             \$installArgs = @(
               '/i', \$agentPath,
               '/quiet',
               '/qn',
-              '/norestart'
+              '/norestart',
+              'REGISTRATIONTOKEN=\"${REGISTRATION_TOKEN}\"'
             )
             
             \$process = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$installArgs -Wait -PassThru
-            if (\$process.ExitCode -ne 0) {
+            if (\$process.ExitCode -ne 0 -and \$process.ExitCode -ne 3010) {
               Write-Error \"Boot Loader installation failed with exit code: \$(\$process.ExitCode)\"
               exit 1
             }
             Write-Host 'AVD Boot Loader installed successfully'
             
-            # Configure registration token in registry
-            Write-Host 'Configuring registration token...'
-            \$regPath = 'HKLM:\SOFTWARE\Microsoft\RDInfraAgent'
-            if (!(Test-Path \$regPath)) {
-              New-Item -Path \$regPath -Force | Out-Null
-            }
-            Set-ItemProperty -Path \$regPath -Name 'RegistrationToken' -Value '${REGISTRATION_TOKEN}' -Force
-            Write-Host 'Registration token configured'
-            
-            # Download and install the RDP Agent
+            # Download and install the RDP Session Host Agent
             Write-Host 'Downloading RDP Session Host Agent...'
             \$rdpAgentUrl = 'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv'
             \$rdpAgentPath = 'C:\Temp\RDSessionHostInstaller.msi'
@@ -232,26 +224,42 @@ jobs:
               exit 1
             }
             
-            # Install RDP Session Host Agent
-            Write-Host 'Installing RDP Session Host Agent...'
+            # Install RDP Session Host Agent with registration token
+            Write-Host 'Installing RDP Session Host Agent with registration token...'
             \$installArgs = @(
               '/i', \$rdpAgentPath,
               '/quiet',
               '/qn',
-              '/norestart'
+              '/norestart',
+              'REGISTRATIONTOKEN=\"${REGISTRATION_TOKEN}\"'
             )
             
             \$process = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$installArgs -Wait -PassThru
-            if (\$process.ExitCode -ne 0) {
+            if (\$process.ExitCode -ne 0 -and \$process.ExitCode -ne 3010) {
               Write-Error \"RDP Agent installation failed with exit code: \$(\$process.ExitCode)\"
               exit 1
             }
             Write-Host 'RDP Session Host Agent installed successfully'
             
             Write-Host 'Session host registration configuration complete'
+            Write-Host 'VM will restart to apply changes'
             " || exit 1
           
-          echo "AVD Agent installation initiated"
+          echo "AVD Agent installation completed, initiating VM restart..."
+      
+      - name: Restart VM to Complete Registration
+        run: |
+          echo "=== Restarting VM to complete registration ==="
+          
+          # Restart the VM
+          az vm restart \
+            --resource-group "${{ github.event.inputs.resource_group }}" \
+            --name "${{ github.event.inputs.vm_name }}" \
+            --no-wait
+          
+          echo "VM restart initiated"
+          echo "Waiting for VM to restart and register..."
+          sleep 60
       
       - name: Verify Session Host
         run: |
