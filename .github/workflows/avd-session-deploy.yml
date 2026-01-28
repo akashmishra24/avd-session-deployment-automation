@@ -55,7 +55,7 @@ jobs:
       contents: read
  
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
  
       - name: Login to Azure via OIDC
@@ -179,86 +179,18 @@ jobs:
             --resource-group "${{ github.event.inputs.resource_group }}" \
             --name "${{ github.event.inputs.vm_name }}" \
             --command-id RunPowerShellScript \
-            --scripts "
-            # Set error action preference
-            \$ErrorActionPreference = 'Stop'
-            
-            # Create temp directory
-            \$tempDir = 'C:\Temp'
-            if (!(Test-Path \$tempDir)) {
-              New-Item -ItemType Directory -Path \$tempDir -Force | Out-Null
-            }
-            
-            # Define the registration token
-            \$registrationToken = '${REGISTRATION_TOKEN}'
-            Write-Host \"Registration token length: \$(\$registrationToken.Length)\"
-            
-            # Download and install AVD Agent Boot Loader
-            Write-Host 'Step 1: Downloading AVD Boot Loader...'
-            \$bootLoaderUrl = 'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv'
-            \$bootLoaderPath = Join-Path \$tempDir 'RDAgentBootLoaderInstaller.msi'
-            
-            try {
-              Invoke-WebRequest -Uri \$bootLoaderUrl -OutFile \$bootLoaderPath -UseBasicParsing -ErrorAction Stop
-              Write-Host \"Boot Loader downloaded: \$bootLoaderPath\"
-            } catch {
-              Write-Error \"Failed to download Boot Loader: \$_\"
-              exit 1
-            }
-            
-            # Install Boot Loader with token
-            Write-Host 'Step 2: Installing AVD Boot Loader with registration token...'
-            \$logFile = Join-Path \$tempDir 'bootloader_install.log'
-            \$arguments = @(
-              '/i', \$bootLoaderPath,
-              '/qn',
-              '/norestart',
-              '/l*v', \$logFile,
-              \"REGISTRATIONTOKEN=\`\"\$registrationToken\`\"\"
-            )
-            
-            Write-Host \"Boot Loader install command: msiexec.exe \$(\$arguments -join ' ')\"
-            \$process = Start-Process -FilePath 'msiexec.exe' -ArgumentList \$arguments -Wait -PassThru
-            Write-Host \"Boot Loader install exit code: \$(\$process.ExitCode)\"
-            
-            if (Test-Path \$logFile) {
-              Write-Host 'Boot Loader installation log:'
-              Get-Content \$logFile | Write-Host
-            }
-            
-            if (\$process.ExitCode -ne 0 -and \$process.ExitCode -ne 3010) {
-              Write-Error \"Boot Loader installation failed with exit code: \$(\$process.ExitCode)\"
-              exit 1
-            }
-            
-            Write-Host 'Boot Loader installed successfully'
-            
-            # Wait for Boot Loader service to initialize
-            Write-Host 'Waiting for Boot Loader service to initialize...'
-            Start-Sleep -Seconds 10
-            
-            # Verify Boot Loader is installed
-            if (Get-Service -Name 'RDAgentBootLoader' -ErrorAction SilentlyContinue) {
-              Write-Host 'Boot Loader service found and active'
-            }
-            
-            Write-Host 'AVD Agent installation configuration complete'
-            Write-Host 'VM restart will be initiated to apply all changes'
-            " || exit 1
+            --scripts @./register-session-host.ps1 \
+            --parameters "RegistrationToken=$REGISTRATION_TOKEN" \
+            --output json
           
-          echo "AVD Agent Boot Loader installation completed"
+          echo "AVD Agent installation script executed"
       
       - name: Restart VM to Complete Registration
         run: |
           echo "=== Restarting VM to complete registration ==="
           
-          # Restart the VM
-          az vm restart \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.vm_name }}" \
-            --no-wait
-          
-          echo "VM restart initiated"
+          # Note: The VM will restart automatically as part of the registration script
+          # Wait to ensure the restart is initiated and system is ready
           echo "Waiting for VM to restart and complete agent registration..."
           echo "Note: It may take 5-10 minutes for the session host to appear in the host pool"
           sleep 120
