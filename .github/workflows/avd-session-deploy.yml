@@ -73,147 +73,147 @@ jobs:
           echo "=== Resource Groups ==="
           az group list --output table
  
-      - name: Create Network Interface and VMs
-        run: |
-          echo "=== Getting Network Configuration ==="
+      # - name: Create Network Interface and VMs
+      #   run: |
+      #     echo "=== Getting Network Configuration ==="
           
-          # Fail fast if required variables are empty
-          if [ -z "$RESOURCE_GROUP" ]; then
-            echo "ERROR: RESOURCE_GROUP is not set. Check deployment-vars.json or loader step."; exit 1
-          fi
-          if [ -z "$VNET_NAME" ]; then
-            echo "ERROR: VNET_NAME is not set. Check deployment-vars.json or loader step."; exit 1
-          fi
+      #     # Fail fast if required variables are empty
+      #     if [ -z "$RESOURCE_GROUP" ]; then
+      #       echo "ERROR: RESOURCE_GROUP is not set. Check deployment-vars.json or loader step."; exit 1
+      #     fi
+      #     if [ -z "$VNET_NAME" ]; then
+      #       echo "ERROR: VNET_NAME is not set. Check deployment-vars.json or loader step."; exit 1
+      #     fi
 
-          VNET_ID=$(az network vnet show \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$VNET_NAME" \
-            --query id -o tsv) || { echo "ERROR: az network vnet show failed"; exit 1; }
+      #     VNET_ID=$(az network vnet show \
+      #       --resource-group "$RESOURCE_GROUP" \
+      #       --name "$VNET_NAME" \
+      #       --query id -o tsv) || { echo "ERROR: az network vnet show failed"; exit 1; }
           
-          SUBNET_ID=$(az network vnet subnet show \
-            --resource-group "$RESOURCE_GROUP" \
-            --vnet-name "$VNET_NAME" \
-            --name "$SUBNET_NAME" \
-            --query id -o tsv) || { echo "ERROR: az network vnet subnet show failed"; exit 1; }
+      #     SUBNET_ID=$(az network vnet subnet show \
+      #       --resource-group "$RESOURCE_GROUP" \
+      #       --vnet-name "$VNET_NAME" \
+      #       --name "$SUBNET_NAME" \
+      #       --query id -o tsv) || { echo "ERROR: az network vnet subnet show failed"; exit 1; }
           
-          echo "VNET_ID: $VNET_ID"
-          echo "SUBNET_ID: $SUBNET_ID"
+      #     echo "VNET_ID: $VNET_ID"
+      #     echo "SUBNET_ID: $SUBNET_ID"
           
-          echo "=== Creating Network Interface and VM for each name in VM_NAMES ==="
-          # VM_NAMES is exported as a JSON string; strip outer single quotes if present
-          VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
-          for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
-            echo "Creating NIC for $vm"
-            az network nic create \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$vm-nic" \
-              --location "$LOCATION" \
-              --subnet "$SUBNET_ID" \
-              --private-ip-address-version IPv4 \
-              --output table
+      #     echo "=== Creating Network Interface and VM for each name in VM_NAMES ==="
+      #     # VM_NAMES is exported as a JSON string; strip outer single quotes if present
+      #     VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+      #     for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
+      #       echo "Creating NIC for $vm"
+      #       az network nic create \
+      #         --resource-group "$RESOURCE_GROUP" \
+      #         --name "$vm-nic" \
+      #         --location "$LOCATION" \
+      #         --subnet "$SUBNET_ID" \
+      #         --private-ip-address-version IPv4 \
+      #         --output table
 
-            echo "Creating VM: $vm"
-            az vm create \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$vm" \
-              --image "$IMAGE" \
-              --size "$VM_SIZE" \
-              --location "$LOCATION" \
-              --authentication-type password \
-              --admin-username "$ADMIN_USERNAME" \
-              --admin-password "$ADMIN_PASSWORD" \
-              --nics "$vm-nic" \
-              --public-ip-address "" \
-              --output table
+      #       echo "Creating VM: $vm"
+      #       az vm create \
+      #         --resource-group "$RESOURCE_GROUP" \
+      #         --name "$vm" \
+      #         --image "$IMAGE" \
+      #         --size "$VM_SIZE" \
+      #         --location "$LOCATION" \
+      #         --authentication-type password \
+      #         --admin-username "$ADMIN_USERNAME" \
+      #         --admin-password "$ADMIN_PASSWORD" \
+      #         --nics "$vm-nic" \
+      #         --public-ip-address "" \
+      #         --output table
 
-            echo "VM $vm created successfully"
-          done
+      #       echo "VM $vm created successfully"
+      #     done
       
       # single-VM creation removed (we create VMs in a loop above using `vm_names`)
  
-      - name: Generate AVD Registration Token
-        run: |
-          echo "=== Generating AVD Registration Token ==="
+      # - name: Generate AVD Registration Token
+      #   run: |
+      #     echo "=== Generating AVD Registration Token ==="
           
-          # Get the host pool resource ID
-          HOSTPOOL_ID=$(az desktopvirtualization hostpool list \
-            --resource-group "$RESOURCE_GROUP" \
-            --query "[?name=='$HOSTPOOL_NAME'].id" \
-            --output tsv)
+      #     # Get the host pool resource ID
+      #     HOSTPOOL_ID=$(az desktopvirtualization hostpool list \
+      #       --resource-group "$RESOURCE_GROUP" \
+      #       --query "[?name=='$HOSTPOOL_NAME'].id" \
+      #       --output tsv)
           
-          if [ -z "$HOSTPOOL_ID" ]; then
-            echo "ERROR: Host pool '$HOSTPOOL_NAME' not found"
-            exit 1
-          fi
+      #     if [ -z "$HOSTPOOL_ID" ]; then
+      #       echo "ERROR: Host pool '$HOSTPOOL_NAME' not found"
+      #       exit 1
+      #     fi
           
-          echo "Host Pool ID: $HOSTPOOL_ID"
-          echo "HOSTPOOL_ID=$HOSTPOOL_ID" >> $GITHUB_ENV
+      #     echo "Host Pool ID: $HOSTPOOL_ID"
+      #     echo "HOSTPOOL_ID=$HOSTPOOL_ID" >> $GITHUB_ENV
           
-          # Create registration token (valid for 7 days)
-          EXPIRATION_TIME=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%SZ')
-          echo "Token expiration time: $EXPIRATION_TIME"
+      #     # Create registration token (valid for 7 days)
+      #     EXPIRATION_TIME=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%SZ')
+      #     echo "Token expiration time: $EXPIRATION_TIME"
           
-          # Update host pool and capture response
-          HOSTPOOL_RESPONSE=$(az desktopvirtualization hostpool update \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$HOSTPOOL_NAME" \
-            --registration-info registration-token-operation=Update \
-            --registration-info expiration-time="$EXPIRATION_TIME" \
-            --output json)
+      #     # Update host pool and capture response
+      #     HOSTPOOL_RESPONSE=$(az desktopvirtualization hostpool update \
+      #       --resource-group "$RESOURCE_GROUP" \
+      #       --name "$HOSTPOOL_NAME" \
+      #       --registration-info registration-token-operation=Update \
+      #       --registration-info expiration-time="$EXPIRATION_TIME" \
+      #       --output json)
           
-          # Extract the registration token from response
-          REGISTRATION_TOKEN=$(echo "$HOSTPOOL_RESPONSE" | jq -r '.registrationInfo.token')
+      #     # Extract the registration token from response
+      #     REGISTRATION_TOKEN=$(echo "$HOSTPOOL_RESPONSE" | jq -r '.registrationInfo.token')
           
-          if [ -z "$REGISTRATION_TOKEN" ] || [ "$REGISTRATION_TOKEN" = "null" ]; then
-            echo "ERROR: Failed to extract registration token from response"
-            echo "Response: $HOSTPOOL_RESPONSE"
-            exit 1
-          fi
+      #     if [ -z "$REGISTRATION_TOKEN" ] || [ "$REGISTRATION_TOKEN" = "null" ]; then
+      #       echo "ERROR: Failed to extract registration token from response"
+      #       echo "Response: $HOSTPOOL_RESPONSE"
+      #       exit 1
+      #     fi
           
-          echo "Registration token generated successfully"
-          echo "REGISTRATION_TOKEN=$REGISTRATION_TOKEN" >> $GITHUB_ENV
+      #     echo "Registration token generated successfully"
+      #     echo "REGISTRATION_TOKEN=$REGISTRATION_TOKEN" >> $GITHUB_ENV
       
-      - name: Install AVD Agent and Register Session Hosts
-        run: |
-          echo "=== Installing AVD Agent on all VMs ==="
+      # - name: Install AVD Agent and Register Session Hosts
+      #   run: |
+      #     echo "=== Installing AVD Agent on all VMs ==="
 
-          if [ -z "$REGISTRATION_TOKEN" ]; then
-            echo "ERROR: Registration token is not available"
-            exit 1
-          fi
+      #     if [ -z "$REGISTRATION_TOKEN" ]; then
+      #       echo "ERROR: Registration token is not available"
+      #       exit 1
+      #     fi
 
-          VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
-          for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
-            echo "Installing agent on $vm"
-            az vm run-command invoke \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$vm" \
-              --command-id RunPowerShellScript \
-              --scripts @./register-session-host.ps1 \
-              --parameters "RegistrationToken=$REGISTRATION_TOKEN" \
-              --output json || {
-                echo "Agent install failed on $vm"; exit 1
-              }
-            echo "Agent install invoked on $vm"
-          done
+      #     VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+      #     for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
+      #       echo "Installing agent on $vm"
+      #       az vm run-command invoke \
+      #         --resource-group "$RESOURCE_GROUP" \
+      #         --name "$vm" \
+      #         --command-id RunPowerShellScript \
+      #         --scripts @./register-session-host.ps1 \
+      #         --parameters "RegistrationToken=$REGISTRATION_TOKEN" \
+      #         --output json || {
+      #           echo "Agent install failed on $vm"; exit 1
+      #         }
+      #       echo "Agent install invoked on $vm"
+      #     done
       
-      - name: Wait for VMs to restart (post-registration)
-        run: |
-          echo "=== Waiting for VMs to restart after agent installation ==="
-          VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
-          for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
-            echo "Waiting for $vm to come back online..."
-            # wait for VM power state to be 'VM running'
-            for i in {1..30}; do
-              state=$(az vm get-instance-view --resource-group "$RESOURCE_GROUP" --name "$vm" --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" -o tsv 2>/dev/null || echo "")
-              if [[ "$state" == "VM running" ]]; then
-                echo "$vm is running"
-                break
-              fi
-              echo "Still waiting for $vm (attempt $i)..."
-              sleep 10
-            done
-          done
+      # - name: Wait for VMs to restart (post-registration)
+      #   run: |
+      #     echo "=== Waiting for VMs to restart after agent installation ==="
+      #     VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+      #     for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
+      #       echo "Waiting for $vm to come back online..."
+      #       # wait for VM power state to be 'VM running'
+      #       for i in {1..30}; do
+      #         state=$(az vm get-instance-view --resource-group "$RESOURCE_GROUP" --name "$vm" --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" -o tsv 2>/dev/null || echo "")
+      #         if [[ "$state" == "VM running" ]]; then
+      #           echo "$vm is running"
+      #           break
+      #         fi
+      #         echo "Still waiting for $vm (attempt $i)..."
+      #         sleep 10
+      #       done
+      #     done
       
       # - name: Retrieve Domain Join Credentials from Key Vault
       #   run: |
@@ -296,18 +296,18 @@ jobs:
       #       echo "$vm domain join invoked"
       #     done
       
-      - name: Verify Session Host
-        run: |
-          echo "=== Verifying Session Host Registration ==="
+      # - name: Verify Session Host
+      #   run: |
+      #     echo "=== Verifying Session Host Registration ==="
           
-          # Wait for the VM to register (this can take a few minutes)
-          sleep 30
+      #     # Wait for the VM to register (this can take a few minutes)
+      #     sleep 30
           
-          # List available session hosts in the host pool
-          az desktopvirtualization hostpool show \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$HOSTPOOL_NAME" \
-            --output table
+      #     # List available session hosts in the host pool
+      #     az desktopvirtualization hostpool show \
+      #       --resource-group "$RESOURCE_GROUP" \
+      #       --name "$HOSTPOOL_NAME" \
+      #       --output table
 
       - name: Assign Users to Session Hosts (Personal Pool)
         run: |
