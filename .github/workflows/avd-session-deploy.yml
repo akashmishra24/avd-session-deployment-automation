@@ -342,7 +342,34 @@ jobs:
             echo "ERROR: Failed to obtain subscription id"; exit 1
           fi
 
-          API_VERSION="2023-09-30"
+          # Use a supported API version (update if needed). The previous 2023-09-30 caused NoRegisteredProviderFound.
+          API_VERSION="2024-11-01-preview"
+
+          # Ensure the DesktopVirtualization resource provider is registered in the subscription.
+          echo "Checking Microsoft.DesktopVirtualization provider registration..."
+          prov_state=$(az provider show --namespace Microsoft.DesktopVirtualization --query registrationState -o tsv 2>/dev/null || echo "")
+          if [ -z "$prov_state" ] || [ "$prov_state" = "NotRegistered" ]; then
+            echo "Provider Microsoft.DesktopVirtualization not registered (state='$prov_state'). Registering now..."
+            az provider register --namespace Microsoft.DesktopVirtualization || {
+              echo "ERROR: Failed to start provider registration for Microsoft.DesktopVirtualization"; exit 1
+            }
+
+            # Wait (with timeout) for registration to complete
+            for j in {1..30}; do
+              prov_state=$(az provider show --namespace Microsoft.DesktopVirtualization --query registrationState -o tsv 2>/dev/null || echo "")
+              echo "Provider state: $prov_state"
+              if [ "$prov_state" = "Registered" ]; then
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$prov_state" != "Registered" ]; then
+              echo "WARNING: Provider registration did not reach 'Registered' state after waiting. REST calls may still fail. Current state: $prov_state"
+            fi
+          else
+            echo "Provider Microsoft.DesktopVirtualization is already registered (state='$prov_state')."
+          fi
 
           for i in "${!user_array[@]}"; do
             user="${user_array[$i]}"
@@ -356,9 +383,16 @@ jobs:
 
             body=$(jq -n --arg upn "$user" '{properties: {userPrincipalName: $upn}}')
 
-            az rest --method put --uri "$uri" --body "$body" --output json || {
-              echo "WARNING: REST call to add user '$user' failed. Continuing..."
-            }
+            # Capture response (body or error) and exit code for diagnostics
+            resp=$(az rest --method put --uri "$uri" --body "$body" --output json 2>&1) || rc=$? && rc=${rc:-0}
+            if [ -n "$resp" ] && [ "$rc" -ne 0 ]; then
+              echo "ERROR: REST call to add user '$user' failed (rc=$rc). Response:" 
+              echo "$resp"
+              echo "Continuing to next user..."
+              continue
+            fi
+
+            echo "Successfully added/updated user '$user' in application group '$APP_GROUP_NAME'"
           done
 
           echo "Application group REST user assignment complete"
