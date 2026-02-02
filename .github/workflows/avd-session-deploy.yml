@@ -38,6 +38,17 @@ jobs:
             fi
           done
 
+      - name: Debug loaded variables (non-sensitive)
+        run: |
+          echo "--- Loaded variables ---"
+          echo "RESOURCE_GROUP=$RESOURCE_GROUP"
+          echo "VNET_NAME=$VNET_NAME"
+          echo "SUBNET_NAME=$SUBNET_NAME"
+          echo "LOCATION=$LOCATION"
+          echo "HOSTPOOL_NAME=$HOSTPOOL_NAME"
+          # show VM names (may be JSON array)
+          echo "VM_NAMES=$VM_NAMES"
+
       - name: Login to Azure via OIDC
         uses: azure/login@v2
         with:
@@ -57,16 +68,24 @@ jobs:
         run: |
           echo "=== Getting Network Configuration ==="
           
+          # Fail fast if required variables are empty
+          if [ -z "$RESOURCE_GROUP" ]; then
+            echo "ERROR: RESOURCE_GROUP is not set. Check deployment-vars.json or loader step."; exit 1
+          fi
+          if [ -z "$VNET_NAME" ]; then
+            echo "ERROR: VNET_NAME is not set. Check deployment-vars.json or loader step."; exit 1
+          fi
+
           VNET_ID=$(az network vnet show \
             --resource-group "$RESOURCE_GROUP" \
             --name "$VNET_NAME" \
-            --query id -o tsv)
+            --query id -o tsv) || { echo "ERROR: az network vnet show failed"; exit 1; }
           
           SUBNET_ID=$(az network vnet subnet show \
             --resource-group "$RESOURCE_GROUP" \
             --vnet-name "$VNET_NAME" \
             --name "$SUBNET_NAME" \
-            --query id -o tsv)
+            --query id -o tsv) || { echo "ERROR: az network vnet subnet show failed"; exit 1; }
           
           echo "VNET_ID: $VNET_ID"
           echo "SUBNET_ID: $SUBNET_ID"
@@ -101,24 +120,7 @@ jobs:
             echo "VM $vm created successfully"
           done
       
-      - name: Create VM for AVD Session Host
-        run: |
-          echo "=== Creating VM: $VM_NAME ==="
-          
-          az vm create \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$VM_NAME" \
-            --image "$IMAGE" \
-            --size "$VM_SIZE" \
-            --location "$LOCATION" \
-            --authentication-type password \
-            --admin-username "$ADMIN_USERNAME" \
-            --admin-password "$ADMIN_PASSWORD" \
-            --nics "$VM_NAME-nic" \
-            --public-ip-address "" \
-            --output table
-          
-          echo "VM created successfully"
+      # single-VM creation removed (we create VMs in a loop above using `vm_names`)
  
       - name: Generate AVD Registration Token
         run: |
