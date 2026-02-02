@@ -405,12 +405,23 @@ jobs:
 
             body=$(jq -n --arg upn "$user" '{properties: {userPrincipalName: $upn}}')
 
-            # Capture response (body or error) and exit code for diagnostics
+            # Diagnostic: GET the users collection to see what's available
+            echo "Diagnostic: GET users collection for app group"
+            get_resp=""
+            get_rc=0
+            get_resp=$(az rest --method get --uri "https://management.azure.com${APP_GROUP_ID}/users?api-version=${API_VERSION}" --output json 2>&1) || get_rc=$?
+            echo "GET rc=$get_rc"
+            echo "$get_resp"
+
+            echo "Application Group resource JSON (az resource show):"
+            az resource show --ids "$APP_GROUP_ID" -o json || true
+
+            # Capture response (body or error) and exit code for diagnostics for PUT
             resp=""
             rc=0
             resp=$(az rest --method put --uri "$users_uri" --body "$body" --output json 2>&1) || rc=$?
             if [ $rc -ne 0 ]; then
-              echo "ERROR: REST call to add user '$user' failed (rc=$rc). Response:" 
+              echo "ERROR: REST PUT to add user '$user' failed (rc=$rc). Response:" 
               echo "$resp"
               echo "Continuing to next user..."
               continue
