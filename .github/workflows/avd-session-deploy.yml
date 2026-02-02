@@ -340,7 +340,7 @@ jobs:
             if [ -z "$DOMAIN_NAME" ]; then
               session_host_name="$vm"
             else
-              session_host_name="${vm}.${DOMAIN_NAME}"
+              session_host_name="${vm}${DOMAIN_NAME}"
             fi
             
             echo "Assigning user '$user' to session host '$session_host_name'"
