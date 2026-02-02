@@ -342,7 +342,56 @@ jobs:
             echo "ERROR: Failed to obtain subscription id"; exit 1
           fi
 
-          API_VERSION="2023-09-30"
+          # Probe provider API versions and select one if available
+          echo "Probing provider API versions for applicationGroups..."
+          api_versions_json=$(az provider show --namespace Microsoft.DesktopVirtualization --query "resourceTypes[?resourceType=='applicationGroups'].apiVersions" -o json 2>/dev/null || echo "[]")
+          echo "Detected API versions: $api_versions_json"
+          # Pick the first api-version if available, otherwise fallback to a known preview
+          API_VERSION=$(echo "$api_versions_json" | jq -r '.[0] // "2024-11-01-preview"')
+          echo "Using API version: $API_VERSION"
+
+          # Ensure the DesktopVirtualization resource provider is registered in the subscription.
+          echo "Checking Microsoft.DesktopVirtualization provider registration..."
+          prov_state=$(az provider show --namespace Microsoft.DesktopVirtualization --query registrationState -o tsv 2>/dev/null || echo "")
+          if [ -z "$prov_state" ] || [ "$prov_state" = "NotRegistered" ]; then
+            echo "Provider Microsoft.DesktopVirtualization not registered (state='$prov_state'). Registering now..."
+            az provider register --namespace Microsoft.DesktopVirtualization || {
+              echo "ERROR: Failed to start provider registration for Microsoft.DesktopVirtualization"; exit 1
+            }
+
+            # Wait (with timeout) for registration to complete
+            for j in {1..30}; do
+              prov_state=$(az provider show --namespace Microsoft.DesktopVirtualization --query registrationState -o tsv 2>/dev/null || echo "")
+              echo "Provider state: $prov_state"
+              if [ "$prov_state" = "Registered" ]; then
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$prov_state" != "Registered" ]; then
+              echo "WARNING: Provider registration did not reach 'Registered' state after waiting. REST calls may still fail. Current state: $prov_state"
+            fi
+          else
+            echo "Provider Microsoft.DesktopVirtualization is already registered (state='$prov_state')."
+          fi
+
+          # Confirm the application group resource exists and capture its resource ID
+          echo "Checking for Application Group resource '$APP_GROUP_NAME' in resource group '$RESOURCE_GROUP'..."
+          APP_GROUP_ID=$(az resource show --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DesktopVirtualization/applicationGroups" --name "$APP_GROUP_NAME" --query id -o tsv 2>/dev/null || echo "")
+          if [ -z "$APP_GROUP_ID" ]; then
+            echo "az resource show did not find the application group. Trying extension command as fallback..."
+            APP_GROUP_JSON=$(az desktopvirtualization application-group show --resource-group "$RESOURCE_GROUP" --name "$APP_GROUP_NAME" -o json 2>/dev/null || echo "")
+            APP_GROUP_ID=$(echo "$APP_GROUP_JSON" | jq -r '.id // empty')
+          fi
+
+          if [ -z "$APP_GROUP_ID" ]; then
+            echo "ERROR: Application Group '$APP_GROUP_NAME' not found in resource group '$RESOURCE_GROUP'. Listing DesktopVirtualization-related resources for debugging:"
+            az resource list --resource-group "$RESOURCE_GROUP" --query "[?contains(type, 'DesktopVirtualization')]" -o json || true
+            echo "Cannot continue without a valid application group resource. Exiting."; exit 1
+          fi
+
+          echo "Found Application Group resource ID: $APP_GROUP_ID"
 
           for i in "${!user_array[@]}"; do
             user="${user_array[$i]}"
@@ -356,9 +405,18 @@ jobs:
 
             body=$(jq -n --arg upn "$user" '{properties: {userPrincipalName: $upn}}')
 
-            az rest --method put --uri "$uri" --body "$body" --output json || {
-              echo "WARNING: REST call to add user '$user' failed. Continuing..."
-            }
+            # Capture response (body or error) and exit code for diagnostics
+            resp=""
+            rc=0
+            resp=$(az rest --method put --uri "$users_uri" --body "$body" --output json 2>&1) || rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "ERROR: REST call to add user '$user' failed (rc=$rc). Response:" 
+              echo "$resp"
+              echo "Continuing to next user..."
+              continue
+            fi
+
+            echo "Successfully added/updated user '$user' in application group '$APP_GROUP_NAME'"
           done
 
           echo "Application group REST user assignment complete"
