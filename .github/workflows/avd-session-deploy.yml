@@ -28,15 +28,24 @@ jobs:
         run: |
           echo "=== Loading variables from ${{ github.event.inputs.vars_file }} ==="
           file="$GITHUB_WORKSPACE/${{ github.event.inputs.vars_file }}"
-          jq -r 'to_entries[] | "\(.key)=\(.value | if type==\"string\" then . else @json end)"' "$file" |
+          if [ ! -f "$file" ]; then
+            echo "ERROR: variables file not found at $file"; exit 1
+          fi
+
+          # Emit uppercase keys with JSON-encoded values to a temp file
+          jq -r 'to_entries[] | "\(.key|ascii_upcase)=\(.value|@json)"' "$file" > /tmp/vars_jq.txt
+
+          # Read and normalize JSON values, then write to GITHUB_ENV
           while IFS='=' read -r key val; do
-            KEY_UPPER=$(echo "$key" | tr '[:lower:]' '[:upper:]')
-            if echo "$val" | grep -qE '^[\[{\"]'; then
-              echo "${KEY_UPPER}='${val}'" >> "$GITHUB_ENV"
-            else
-              echo "${KEY_UPPER}=${val}" >> "$GITHUB_ENV"
+            # If val is a JSON string (quoted), strip surrounding quotes and unescape
+            if echo "$val" | grep -qE '^".*"$'; then
+              # remove leading/trailing quote
+              val=$(echo "$val" | sed -E 's/^"(.*)"$/\1/')
+              # unescape common sequences
+              val=$(echo -e "$(echo "$val" | sed 's/\\"/"/g; s/\\n/\\n/g')")
             fi
-          done
+            printf "%s=%s\n" "$key" "$val" >> "$GITHUB_ENV"
+          done < /tmp/vars_jq.txt
 
       - name: Debug loaded variables (non-sensitive)
         run: |
