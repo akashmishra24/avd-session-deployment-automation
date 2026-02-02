@@ -1,0 +1,17 @@
+{
+  "vm_names": ["avd-vm-01"],
+  "vm_size": "Standard_D2s_v3",
+  "resource_group": "AVD-RG",
+  "vnet_name": "avdsessionvnet",
+  "subnet_name": "subnet01",
+  "image": "MicrosoftWindowsDesktop:Windows-11:win11-25h2-pro:latest",
+  "location": "eastus",
+  "hostpool_name": "hostpool01",
+  "admin_username": "ssvadmin",
+  "admin_password": "P@ssw0rd1234!",
+  "domain_name": "contoso.com",
+  "domain_ou": "",
+  "keyvault_name": "my-keyvault",
+  "keyvault_secret_username": "domain-join-username",
+  "keyvault_secret_password": "domain-join-password"
+}

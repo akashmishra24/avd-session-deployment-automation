@@ -3,48 +3,10 @@ name: AVD Session Host Deployment
 on:
   workflow_dispatch:  # Manual trigger for testing
     inputs:
-      vm_name:
-        description: 'Name of the VM to create'
+      vars_file:
+        description: 'Path to JSON variables file in the repository'
         required: true
-        default: 'avd-vm-01'
-      vm_size:
-        description: 'VM size (e.g., Standard_D2s_v3)'
-        required: true
-        default: 'Standard_D2s_v3'
-      resource_group:
-        description: 'Resource group name'
-        required: true
-        default: 'AVD-RG'
-      vnet_name:
-        description: 'Virtual Network name'
-        required: true
-        default: 'avdsessionvnet'
-      subnet_name:
-        description: 'Subnet name'
-        required: true
-        default: 'subnet01'
-      image:
-        description: 'Image reference (e.g., MicrosoftWindowsDesktop:windows-11:win11-22h2-avd:latest)'
-        required: true
-        default: 'MicrosoftWindowsDesktop:Windows-11:win11-25h2-pro:latest'
-       # default: '/subscriptions/548e32f7-f0a7-4af3-a856-130ec718c224/resourceGroups/rg-subsurfacevdi-np-001/providers/Microsoft.Compute/galleries/gal_subsurfacevdi_np_ae/images/win11-soe-ssv/versions/1.1.0'
-      location:
-        description: 'Azure location'
-        required: true
-        default: 'eastus'
-      hostpool_name:
-        description: 'AVD Host Pool name'
-        required: true
-        default: 'hostpool01'
-      admin_username:
-        description: 'VM admin username'
-        required: true
-        default: 'ssvadmin'
-      admin_password:
-        description: 'VM admin password'
-        required: true
-        type: string
-        default: 'P@ssw0rd1234!'
+        default: 'deployment-vars.json'
  
 jobs:
   deploy-avd-sessionhost:
@@ -57,7 +19,25 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
- 
+
+      - name: Install jq
+        run: |
+          echo "Installing jq"
+          sudo apt-get update && sudo apt-get install -y jq
+      - name: Load deployment variables
+        run: |
+          echo "=== Loading variables from ${{ github.event.inputs.vars_file }} ==="
+          file="$GITHUB_WORKSPACE/${{ github.event.inputs.vars_file }}"
+          jq -r 'to_entries[] | "\(.key)=\(.value | if type==\"string\" then . else @json end)"' "$file" |
+          while IFS='=' read -r key val; do
+            KEY_UPPER=$(echo "$key" | tr '[:lower:]' '[:upper:]')
+            if echo "$val" | grep -qE '^[\[{\"]'; then
+              echo "${KEY_UPPER}='${val}'" >> "$GITHUB_ENV"
+            else
+              echo "${KEY_UPPER}=${val}" >> "$GITHUB_ENV"
+            fi
+          done
+
       - name: Login to Azure via OIDC
         uses: azure/login@v2
         with:
@@ -73,49 +53,68 @@ jobs:
           echo "=== Resource Groups ==="
           az group list --output table
  
-      - name: Create Network Interface
+      - name: Create Network Interface and VMs
         run: |
           echo "=== Getting Network Configuration ==="
           
           VNET_ID=$(az network vnet show \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.vnet_name }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$VNET_NAME" \
             --query id -o tsv)
           
           SUBNET_ID=$(az network vnet subnet show \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --vnet-name "${{ github.event.inputs.vnet_name }}" \
-            --name "${{ github.event.inputs.subnet_name }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --vnet-name "$VNET_NAME" \
+            --name "$SUBNET_NAME" \
             --query id -o tsv)
           
           echo "VNET_ID: $VNET_ID"
           echo "SUBNET_ID: $SUBNET_ID"
           
-          echo "=== Creating Network Interface ==="
-          az network nic create \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.vm_name }}-nic" \
-            --location "${{ github.event.inputs.location }}" \
-            --subnet "$SUBNET_ID" \
-            --private-ip-address-version IPv4 \
-            --output table
-          
-          echo "Network interface created successfully"
+          echo "=== Creating Network Interface and VM for each name in VM_NAMES ==="
+          # VM_NAMES is exported as a JSON string; strip outer single quotes if present
+          VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+          for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
+            echo "Creating NIC for $vm"
+            az network nic create \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$vm-nic" \
+              --location "$LOCATION" \
+              --subnet "$SUBNET_ID" \
+              --private-ip-address-version IPv4 \
+              --output table
+
+            echo "Creating VM: $vm"
+            az vm create \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$vm" \
+              --image "$IMAGE" \
+              --size "$VM_SIZE" \
+              --location "$LOCATION" \
+              --authentication-type password \
+              --admin-username "$ADMIN_USERNAME" \
+              --admin-password "$ADMIN_PASSWORD" \
+              --nics "$vm-nic" \
+              --public-ip-address "" \
+              --output table
+
+            echo "VM $vm created successfully"
+          done
       
       - name: Create VM for AVD Session Host
         run: |
-          echo "=== Creating VM: ${{ github.event.inputs.vm_name }} ==="
+          echo "=== Creating VM: $VM_NAME ==="
           
           az vm create \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.vm_name }}" \
-            --image "${{ github.event.inputs.image }}" \
-            --size "${{ github.event.inputs.vm_size }}" \
-            --location "${{ github.event.inputs.location }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$VM_NAME" \
+            --image "$IMAGE" \
+            --size "$VM_SIZE" \
+            --location "$LOCATION" \
             --authentication-type password \
-            --admin-username "${{ github.event.inputs.admin_username }}" \
-            --admin-password "${{ github.event.inputs.admin_password }}" \
-            --nics "${{ github.event.inputs.vm_name }}-nic" \
+            --admin-username "$ADMIN_USERNAME" \
+            --admin-password "$ADMIN_PASSWORD" \
+            --nics "$VM_NAME-nic" \
             --public-ip-address "" \
             --output table
           
@@ -127,12 +126,12 @@ jobs:
           
           # Get the host pool resource ID
           HOSTPOOL_ID=$(az desktopvirtualization hostpool list \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --query "[?name=='${{ github.event.inputs.hostpool_name }}'].id" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "[?name=='$HOSTPOOL_NAME'].id" \
             --output tsv)
           
           if [ -z "$HOSTPOOL_ID" ]; then
-            echo "ERROR: Host pool '${{ github.event.inputs.hostpool_name }}' not found"
+            echo "ERROR: Host pool '$HOSTPOOL_NAME' not found"
             exit 1
           fi
           
@@ -145,8 +144,8 @@ jobs:
           
           # Update host pool and capture response
           HOSTPOOL_RESPONSE=$(az desktopvirtualization hostpool update \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.hostpool_name }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$HOSTPOOL_NAME" \
             --registration-info registration-token-operation=Update \
             --registration-info expiration-time="$EXPIRATION_TIME" \
             --output json)
@@ -163,37 +162,128 @@ jobs:
           echo "Registration token generated successfully"
           echo "REGISTRATION_TOKEN=$REGISTRATION_TOKEN" >> $GITHUB_ENV
       
-      - name: Install AVD Agent and Register Session Host
+      - name: Install AVD Agent and Register Session Hosts
         run: |
-          echo "=== Installing AVD Agent on VM ==="
-          
+          echo "=== Installing AVD Agent on all VMs ==="
+
           if [ -z "$REGISTRATION_TOKEN" ]; then
             echo "ERROR: Registration token is not available"
             exit 1
           fi
-          
-          echo "Registration token retrieved (length: ${#REGISTRATION_TOKEN})"
-          
-          # Install AVD Agent using custom script extension
-          az vm run-command invoke \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.vm_name }}" \
-            --command-id RunPowerShellScript \
-            --scripts @./register-session-host.ps1 \
-            --parameters "RegistrationToken=$REGISTRATION_TOKEN" \
-            --output json
-          
-          echo "AVD Agent installation script executed"
+
+          VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+          for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
+            echo "Installing agent on $vm"
+            az vm run-command invoke \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$vm" \
+              --command-id RunPowerShellScript \
+              --scripts @./register-session-host.ps1 \
+              --parameters "RegistrationToken=$REGISTRATION_TOKEN" \
+              --output json || {
+                echo "Agent install failed on $vm"; exit 1
+              }
+            echo "Agent install invoked on $vm"
+          done
       
-      - name: Restart VM to Complete Registration
+      - name: Wait for VMs to restart (post-registration)
         run: |
-          echo "=== Restarting VM to complete registration ==="
+          echo "=== Waiting for VMs to restart after agent installation ==="
+          VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+          for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
+            echo "Waiting for $vm to come back online..."
+            # wait for VM power state to be 'VM running'
+            for i in {1..30}; do
+              state=$(az vm get-instance-view --resource-group "$RESOURCE_GROUP" --name "$vm" --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" -o tsv 2>/dev/null || echo "")
+              if [[ "$state" == "VM running" ]]; then
+                echo "$vm is running"
+                break
+              fi
+              echo "Still waiting for $vm (attempt $i)..."
+              sleep 10
+            done
+          done
+      
+      # - name: Retrieve Domain Join Credentials from Key Vault
+      #   run: |
+      #     echo "=== Retrieving domain join credentials from Key Vault ==="
           
-          # Note: The VM will restart automatically as part of the registration script
-          # Wait to ensure the restart is initiated and system is ready
-          echo "Waiting for VM to restart and complete agent registration..."
-          echo "Note: It may take 5-10 minutes for the session host to appear in the host pool"
-          sleep 120
+      #     # Retrieve service account username
+      #     DOMAIN_USERNAME=$(az keyvault secret show \
+      #       --vault-name "$KEYVAULT_NAME" \
+      #       --name "$KEYVAULT_SECRET_USERNAME" \
+      #       --query value \
+      #       --output tsv)
+          
+      #     if [ -z "$DOMAIN_USERNAME" ]; then
+      #       echo "ERROR: Failed to retrieve domain username from Key Vault"
+      #       exit 1
+      #     fi
+          
+      #     echo "Domain username retrieved successfully"
+      #     echo "DOMAIN_USERNAME=$DOMAIN_USERNAME" >> $GITHUB_ENV
+          
+      #     # Retrieve service account password
+      #     DOMAIN_PASSWORD=$(az keyvault secret show \
+      #       --vault-name "$KEYVAULT_NAME" \
+      #       --name "$KEYVAULT_SECRET_PASSWORD" \
+      #       --query value \
+      #       --output tsv)
+          
+      #     if [ -z "$DOMAIN_PASSWORD" ]; then
+      #       echo "ERROR: Failed to retrieve domain password from Key Vault"
+      #       exit 1
+      #     fi
+          
+      #     echo "Domain password retrieved successfully"
+      #     echo "DOMAIN_PASSWORD=$DOMAIN_PASSWORD" >> $GITHUB_ENV
+      
+      # - name: Join VMs to Domain
+      #   run: |
+      #     echo "=== Joining VMs to domain: $DOMAIN_NAME ==="
+          
+      #     if [ -z "$DOMAIN_USERNAME" ] || [ -z "$DOMAIN_PASSWORD" ]; then
+      #       echo "ERROR: Domain credentials are not available"
+      #       exit 1
+      #     fi
+          
+      #     VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+      #     for vm in $(echo "$VM_NAMES_CLEAN" | jq -r '.[]'); do
+      #       echo "Joining $vm to domain"
+      #       az vm run-command invoke \
+      #         --resource-group "$RESOURCE_GROUP" \
+      #         --name "$vm" \
+      #         --command-id RunPowerShellScript \
+      #         --scripts "
+      #         # Set error action preference
+      #         \$ErrorActionPreference = 'Stop'
+      #         Write-Host 'Preparing to join domain...'
+      #         \$domainUsername = '$DOMAIN_USERNAME'
+      #         \$domainPassword = '$DOMAIN_PASSWORD'
+      #         \$domainName = "$DOMAIN_NAME"
+      #         \$domainOU = "$DOMAIN_OU"
+      #         \$securePassword = ConvertTo-SecureString -String \$domainPassword -AsPlainText -Force
+      #         \$domainCreds = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList \$domainUsername, \$securePassword
+      #         \$addComputerParams = @{
+      #           DomainName = \$domainName
+      #           Credential = \$domainCreds
+      #           Force = \$true
+      #           Restart = \$true
+      #           ErrorAction = 'Stop'
+      #         }
+      #         if (![string]::IsNullOrEmpty(\$domainOU)) {
+      #           \$addComputerParams.OUPath = \$domainOU
+      #         }
+      #         try {
+      #           Add-Computer @addComputerParams
+      #         } catch {
+      #           Write-Error \"Failed to join domain: \$_\"; exit 1
+      #         }
+      #         " \
+      #         --output json || { echo "Domain join failed on $vm"; exit 1; }
+
+      #       echo "$vm domain join invoked"
+      #     done
       
       - name: Verify Session Host
         run: |
@@ -204,8 +294,8 @@ jobs:
           
           # List available session hosts in the host pool
           az desktopvirtualization hostpool show \
-            --resource-group "${{ github.event.inputs.resource_group }}" \
-            --name "${{ github.event.inputs.hostpool_name }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$HOSTPOOL_NAME" \
             --output table
  
       - name: Azure CLI logout
