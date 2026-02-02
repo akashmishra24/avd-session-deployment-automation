@@ -308,6 +308,62 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --name "$HOSTPOOL_NAME" \
             --output table
+
+      - name: Assign Users to Session Hosts (Personal Pool)
+        run: |
+          echo "=== Assigning users to session hosts (personal host pool) ==="
+          
+          # Parse user names and vm names
+          USER_NAMES_CLEAN=$(echo "$USER_NAMES" | sed "s/^'//;s/'$//")
+          VM_NAMES_CLEAN=$(echo "$VM_NAMES" | sed "s/^'//;s/'$//")
+          
+          # Create arrays to iterate in parallel
+          declare -a user_array
+          declare -a vm_array
+          
+          # Populate arrays
+          mapfile -t user_array < <(echo "$USER_NAMES_CLEAN" | jq -r '.[]')
+          mapfile -t vm_array < <(echo "$VM_NAMES_CLEAN" | jq -r '.[]')
+          
+          # Verify same number of users and VMs
+          if [ ${#user_array[@]} -ne ${#vm_array[@]} ]; then
+            echo "ERROR: Number of users (${#user_array[@]}) does not match number of VMs (${#vm_array[@]})"; exit 1
+          fi
+          
+          # Iterate and assign users to individual session hosts
+          for i in "${!vm_array[@]}"; do
+            vm="${vm_array[$i]}"
+            user="${user_array[$i]}"
+            
+            # Session host name format: hostname.fqdn (e.g., avd-vm-01.contoso.com)
+            # For Azure VMs, the session host name is typically hostname.domain_name
+            if [ -z "$DOMAIN_NAME" ]; then
+              session_host_name="$vm"
+            else
+              session_host_name="${vm}.${DOMAIN_NAME}"
+            fi
+            
+            echo "Assigning user '$user' to session host '$session_host_name'"
+            
+            az desktopvirtualization hostpool session-host assign-user \
+              --resource-group "$RESOURCE_GROUP" \
+              --host-pool-name "$HOSTPOOL_NAME" \
+              --session-host-name "$session_host_name" \
+              --user-principal-name "$user" \
+              --output table || {
+                echo "WARNING: Failed to assign user '$user' to session host. Retrying with hostname only..."
+                az desktopvirtualization hostpool session-host assign-user \
+                  --resource-group "$RESOURCE_GROUP" \
+                  --host-pool-name "$HOSTPOOL_NAME" \
+                  --session-host-name "$vm" \
+                  --user-principal-name "$user" \
+                  --output table || {
+                    echo "ERROR: Failed to assign user '$user' to session host '$vm'"; exit 1
+                  }
+              }
+          done
+          
+          echo "User assignment to session hosts complete"
  
       - name: Azure CLI logout
         if: always()

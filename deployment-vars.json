@@ -1,5 +1,6 @@
 {
-  "vm_names": ["avd-vm-01", "avd-vm-01"],
+  "vm_names": ["avd-vm-01"],
+  "user_names": ["newadmin@akashmishra240891gmail.onmicrosoft.com"],
   "vm_size": "Standard_D2s_v3",
   "resource_group": "AVD-RG",
   "vnet_name": "avdsessionvnet",
@@ -7,6 +8,7 @@
   "image": "MicrosoftWindowsDesktop:Windows-11:win11-25h2-pro:latest",
   "location": "eastus",
   "hostpool_name": "hostpool01",
+  "app_group_name": "Desktop",
   "admin_username": "ssvadmin",
   "admin_password": "P@ssw0rd1234!",
   "domain_name": "contoso.com",
